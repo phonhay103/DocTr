@@ -128,6 +128,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     train(args)
-
-# if __name__ == '__main__':
-#     print(os.listdir("/media/minh/HDD1/hblab/doctr/20211220_data/test"))
