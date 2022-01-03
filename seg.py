@@ -4,7 +4,6 @@ from torchvision import models
 import torch.nn.functional as F
 import numpy as np
 
-
 class sobel_net(nn.Module):
     def __init__(self):
         super().__init__()
@@ -556,7 +555,6 @@ def get_parameter_number(net):
     total_num = sum(p.numel() for p in net.parameters())
     trainable_num = sum(p.numel() for p in net.parameters() if p.requires_grad)
     return {'Total': total_num, 'Trainable': trainable_num}
-
 
 if __name__ == '__main__':
     net = U2NET(4, 1).cuda()

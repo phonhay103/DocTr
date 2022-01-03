@@ -1,14 +1,11 @@
 from extractor import BasicEncoder
 from position_encoding import build_position_encoding
 
-import argparse
-import numpy as np
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
 import copy
 from typing import Optional
-
 
 class attnLayer(nn.Module):
     def __init__(self, d_model, nhead=8, dim_feedforward=2048, dropout=0.1,
@@ -83,10 +80,8 @@ class attnLayer(nn.Module):
         return self.forward_post(tgt, memory_list, tgt_mask, memory_mask,
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, memory_pos)
 
-
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
-
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""
@@ -98,7 +93,6 @@ def _get_activation_fn(activation):
         return F.glu
     raise RuntimeError(F"activation should be relu/gelu, not {activation}.")
 
-
 class TransDecoder(nn.Module):
     def __init__(self, num_attn_layers, hidden_dim=128):
         super(TransDecoder, self).__init__()
@@ -107,7 +101,7 @@ class TransDecoder(nn.Module):
         self.position_embedding = build_position_encoding(hidden_dim)
 
     def forward(self, imgf, query_embed):
-        pos = self.position_embedding(torch.ones(imgf.shape[0], imgf.shape[2], imgf.shape[3]).bool().cuda())  # torch.Size([1, 128, 36, 36])
+        pos = self.position_embedding(torch.ones(imgf.shape[0], imgf.shape[2], imgf.shape[3]).bool().cuda())
         
         bs, c, h, w = imgf.shape
         imgf = imgf.flatten(2).permute(2, 0, 1)
@@ -120,7 +114,6 @@ class TransDecoder(nn.Module):
 
         return query_embed
 
-
 class TransEncoder(nn.Module):
     def __init__(self, num_attn_layers, hidden_dim=128):
         super(TransEncoder, self).__init__()
@@ -129,7 +122,7 @@ class TransEncoder(nn.Module):
         self.position_embedding = build_position_encoding(hidden_dim)
 
     def forward(self, imgf):
-        pos = self.position_embedding(torch.ones(imgf.shape[0], imgf.shape[2], imgf.shape[3]).bool().cuda())  # torch.Size([1, 128, 36, 36])
+        pos = self.position_embedding(torch.ones(imgf.shape[0], imgf.shape[2], imgf.shape[3]).bool().cuda())
         bs, c, h, w = imgf.shape
         imgf = imgf.flatten(2).permute(2, 0, 1)  
         pos = pos.flatten(2).permute(2, 0, 1)
@@ -140,7 +133,6 @@ class TransEncoder(nn.Module):
 
         return imgf
 
-
 class FlowHead(nn.Module):
     def __init__(self, input_dim=128, hidden_dim=256):
         super(FlowHead, self).__init__()
@@ -150,7 +142,6 @@ class FlowHead(nn.Module):
 
     def forward(self, x):
         return self.conv2(self.relu(self.conv1(x)))
-
 
 class UpdateBlock(nn.Module):
     def __init__(self, hidden_dim=128):
@@ -165,25 +156,18 @@ class UpdateBlock(nn.Module):
         mask = .25 * self.mask(imgf)  # scale mask to balence gradients
         dflow = self.flow_head(imgf)
         coords1 = coords1 + dflow
-
         return mask, coords1
-
 
 def coords_grid(batch, ht, wd):
     coords = torch.meshgrid(torch.arange(ht), torch.arange(wd))
     coords = torch.stack(coords[::-1], dim=0).float()
     return coords[None].repeat(batch, 1, 1, 1)
 
-
-def upflow8(flow, mode='bilinear'):
-    new_size = (8 * flow.shape[2], 8 * flow.shape[3])
-    return  8 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)
-
-
+###################################################################################
 class GeoTr(nn.Module):
     def __init__(self, num_attn_layers):
         super(GeoTr, self).__init__()
-        self.num_attn_layers = num_attn_layers
+        self.num_attn_layers = num_attn_layers # TODO
 
         self.hidden_dim = hdim = 256
 
@@ -191,16 +175,16 @@ class GeoTr(nn.Module):
 
         self.TransEncoder = TransEncoder(self.num_attn_layers, hidden_dim=hdim)
         self.TransDecoder = TransDecoder(self.num_attn_layers, hidden_dim=hdim)
-        self.query_embed = nn.Embedding(1296, self.hidden_dim)
+        self.query_embed = nn.Embedding(1296, self.hidden_dim) # W * H / 64
         
         self.update_block = UpdateBlock(self.hidden_dim)
-                                    
+
     def initialize_flow(self, img):
         N, C, H, W = img.shape
+
         coodslar = coords_grid(N, H, W).to(img.device)
         coords0 = coords_grid(N, H // 8, W // 8).to(img.device)
         coords1 = coords_grid(N, H // 8, W // 8).to(img.device)
-
         return coodslar, coords0, coords1
 
     def upsample_flow(self, flow, mask):
@@ -213,21 +197,20 @@ class GeoTr(nn.Module):
 
         up_flow = torch.sum(mask * up_flow, dim=2)
         up_flow = up_flow.permute(0, 1, 4, 2, 5, 3)
-        
+
         return up_flow.reshape(N, 2, 8 * H, 8 * W)
 
     def forward(self, image1):
         fmap = self.fnet(image1)
         fmap = torch.relu(fmap)
-        
         fmap = self.TransEncoder(fmap)
-        fmap = self.TransDecoder(fmap, self.query_embed.weight)  
+        fmap = self.TransDecoder(fmap, self.query_embed.weight)
 
         # convex upsample baesd on fmap
         coodslar, coords0, coords1 = self.initialize_flow(image1)
         coords1 = coords1.detach()
         mask, coords1 = self.update_block(fmap, coords1)
+
         flow_up = self.upsample_flow(coords1 - coords0, mask)
         bm_up = coodslar + flow_up
-
-        return bm_up 
+        return bm_up

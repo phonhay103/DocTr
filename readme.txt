@@ -1,0 +1,1 @@
+python inference.py --distorrted_path=./images/test/case2_nopad/
